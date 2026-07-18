@@ -1,0 +1,213 @@
+{
+  "region": "Middle East",
+  "source": {
+    "elevation": "AWS terrarium DEM tiles (SRTM/ASTER), zoom 6",
+    "border": "mledoze/countries (ODbL)"
+  },
+  "cols": 820,
+  "rows": 716,
+  "lonMin": 24.606659999999998,
+  "lonMax": 63.441934,
+  "latMin": 12.00611,
+  "latMax": 42.209993000000004,
+  "meanLat": 27.108051500000002,
+  "cosLat": 0.8901487802894361,
+  "cellKm": 4.693,
+  "elevMin": -848,
+  "elevMax": 4581,
+  "layout": {
+    "elev": "int16",
+    "cid": "uint8",
+    "order": "row-major, row0=north",
+    "gzip": true
+  },
+  "countries": [
+    {
+      "id": 1,
+      "code": "tur",
+      "name": "Türkiye",
+      "cell": [
+        22,
+        2,
+        426,
+        150
+      ]
+    },
+    {
+      "id": 2,
+      "code": "irn",
+      "name": "Iran",
+      "cell": [
+        411,
+        58,
+        816,
+        405
+      ]
+    },
+    {
+      "id": 3,
+      "code": "irq",
+      "name": "Iraq",
+      "cell": [
+        300,
+        115,
+        505,
+        311
+      ]
+    },
+    {
+      "id": 4,
+      "code": "syr",
+      "name": "Syria",
+      "cell": [
+        233,
+        117,
+        374,
+        233
+      ]
+    },
+    {
+      "id": 5,
+      "code": "lbn",
+      "name": "Lebanon",
+      "cell": [
+        222,
+        179,
+        252,
+        216
+      ]
+    },
+    {
+      "id": 6,
+      "code": "isr",
+      "name": "Israel",
+      "cell": [
+        204,
+        212,
+        233,
+        301
+      ]
+    },
+    {
+      "id": 7,
+      "code": "pse",
+      "name": "Palestine",
+      "cell": [
+        203,
+        229,
+        231,
+        259
+      ]
+    },
+    {
+      "id": 8,
+      "code": "jor",
+      "name": "Jordan",
+      "cell": [
+        219,
+        209,
+        309,
+        308
+      ]
+    },
+    {
+      "id": 9,
+      "code": "sau",
+      "name": "Saudi Arabia",
+      "cell": [
+        209,
+        238,
+        655,
+        628
+      ]
+    },
+    {
+      "id": 10,
+      "code": "yem",
+      "name": "Yemen",
+      "cell": [
+        379,
+        550,
+        629,
+        713
+      ]
+    },
+    {
+      "id": 11,
+      "code": "omn",
+      "name": "Oman",
+      "cell": [
+        579,
+        376,
+        743,
+        605
+      ]
+    },
+    {
+      "id": 12,
+      "code": "are",
+      "name": "United Arab Emirates",
+      "cell": [
+        570,
+        382,
+        670,
+        463
+      ]
+    },
+    {
+      "id": 13,
+      "code": "qat",
+      "name": "Qatar",
+      "cell": [
+        552,
+        381,
+        569,
+        417
+      ]
+    },
+    {
+      "id": 14,
+      "code": "bhr",
+      "name": "Bahrain",
+      "cell": [
+        546,
+        377,
+        552,
+        391
+      ]
+    },
+    {
+      "id": 15,
+      "code": "kwt",
+      "name": "Kuwait",
+      "cell": [
+        463,
+        287,
+        502,
+        323
+      ]
+    },
+    {
+      "id": 16,
+      "code": "egy",
+      "name": "Egypt",
+      "cell": [
+        2,
+        250,
+        259,
+        478
+      ]
+    },
+    {
+      "id": 17,
+      "code": "cyp",
+      "name": "Cyprus",
+      "cell": [
+        162,
+        155,
+        209,
+        180
+      ]
+    }
+  ]
+}

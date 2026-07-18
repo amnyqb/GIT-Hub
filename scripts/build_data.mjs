@@ -1,17 +1,19 @@
 #!/usr/bin/env node
-// Build a baked elevation + country-mask grid for Saudi Arabia.
+// Build a baked elevation + per-country mask grid for the Middle East region.
 //
 // Data sources (fetched at build time, not shipped):
 //   - Elevation: AWS "terrarium" DEM tiles (public, no key)
 //       https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png
 //       encoded as height = R*256 + G + B/256 - 32768  (metres)
-//   - Border: Saudi Arabia MultiPolygon (mledoze/countries, ODbL)
+//   - Borders: per-country MultiPolygons (mledoze/countries, ODbL)
 //
-// Output: data/saudi_elevation.bin  + data/saudi_elevation.json (metadata)
-// The .bin holds Int16 elevations (row-major) followed by a 1-byte-per-cell mask.
+// Output: data/region_elevation.bin.gz  + data/region_elevation.json
+//   .bin (gzipped) = Int16 elevations (row-major) then Uint8 country id per cell
+//   country id 0 = sea / outside region; 1..N index into meta.countries.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 
@@ -19,11 +21,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const DATA = path.join(ROOT, 'data');
 
-const ZOOM = 7;                 // terrarium zoom level (~300 m/px at this latitude)
-const TARGET_COLS = 600;        // full-res grid columns
-const TILE_BASE = 'https://elevation-tiles-prod.s3.amazonaws.com/terrarium';
+// Middle East + Iran + Turkey. Order = country id order (1..N).
+const COUNTRIES = [
+  ['tur', 'Türkiye'], ['irn', 'Iran'], ['irq', 'Iraq'], ['syr', 'Syria'],
+  ['lbn', 'Lebanon'], ['isr', 'Israel'], ['pse', 'Palestine'], ['jor', 'Jordan'],
+  ['sau', 'Saudi Arabia'], ['yem', 'Yemen'], ['omn', 'Oman'], ['are', 'United Arab Emirates'],
+  ['qat', 'Qatar'], ['bhr', 'Bahrain'], ['kwt', 'Kuwait'], ['egy', 'Egypt'], ['cyp', 'Cyprus'],
+];
 
-// ---- geo helpers (Web Mercator) --------------------------------------------
+const ZOOM = 6;                 // terrarium zoom (~500 m/px here — ample for ~5 km cells)
+const TARGET_COLS = 820;        // full-res grid columns
+const TILE_BASE = 'https://elevation-tiles-prod.s3.amazonaws.com/terrarium';
+const GEO_BASE = 'https://raw.githubusercontent.com/mledoze/countries/master/data';
+
+// ---- Web Mercator helpers --------------------------------------------------
 const TILE = 256;
 const worldSize = z => TILE * 2 ** z;
 const lon2px = (lon, z) => (lon + 180) / 360 * worldSize(z);
@@ -32,16 +43,15 @@ const lat2px = (lat, z) => {
   return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * worldSize(z);
 };
 
-async function fetchTile(z, x, y, attempt = 0) {
-  const url = `${TILE_BASE}/${z}/${x}/${y}.png`;
+async function get(url, kind = 'buf', attempt = 0) {
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return Buffer.from(await res.arrayBuffer());
+    return kind === 'json' ? res.json() : Buffer.from(await res.arrayBuffer());
   } catch (e) {
-    if (attempt >= 4) throw new Error(`tile ${z}/${x}/${y}: ${e.message}`);
+    if (attempt >= 4) throw new Error(`${url}: ${e.message}`);
     await new Promise(r => setTimeout(r, 2000 * 2 ** attempt));
-    return fetchTile(z, x, y, attempt + 1);
+    return get(url, kind, attempt + 1);
   }
 }
 
@@ -49,135 +59,156 @@ async function fetchTile(z, x, y, attempt = 0) {
 function pointInRing(lon, lat, ring) {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i][0], yi = ring[i][1];
-    const xj = ring[j][0], yj = ring[j][1];
-    const intersect = ((yi > lat) !== (yj > lat)) &&
-      (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) &&
+        (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
   }
   return inside;
 }
-function pointInMultiPolygon(lon, lat, polys) {
+function pointInPolys(lon, lat, polys) {
   for (const poly of polys) {
-    if (!pointInRing(lon, lat, poly[0])) continue;      // outside outer ring
-    let inHole = false;
-    for (let h = 1; h < poly.length; h++) {
-      if (pointInRing(lon, lat, poly[h])) { inHole = true; break; }
-    }
-    if (!inHole) return true;
+    if (!pointInRing(lon, lat, poly[0])) continue;
+    let hole = false;
+    for (let h = 1; h < poly.length; h++) if (pointInRing(lon, lat, poly[h])) { hole = true; break; }
+    if (!hole) return true;
   }
   return false;
 }
 
 async function main() {
-  // --- load border, compute bbox ---
-  const geo = JSON.parse(fs.readFileSync(path.join(DATA, 'saudi_arabia.geo.json'), 'utf8'));
-  const gm = geo.features[0].geometry;
-  const polys = gm.type === 'Polygon' ? [gm.coordinates] : gm.coordinates;
-
-  let lonMin = 1e9, lonMax = -1e9, latMin = 1e9, latMax = -1e9;
-  for (const poly of polys) for (const [x, y] of poly[0]) {
-    lonMin = Math.min(lonMin, x); lonMax = Math.max(lonMax, x);
-    latMin = Math.min(latMin, y); latMax = Math.max(latMax, y);
+  // --- fetch borders ---
+  console.log(`fetching ${COUNTRIES.length} country borders…`);
+  const geo = [];
+  for (const [code, name] of COUNTRIES) {
+    const g = await get(`${GEO_BASE}/${code}.geo.json`, 'json');
+    const gm = g.features[0].geometry;
+    const polys = gm.type === 'Polygon' ? [gm.coordinates] : gm.coordinates;
+    // per-country lon/lat bbox for fast cell pre-filtering
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const poly of polys) for (const [x, y] of poly[0]) {
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    }
+    geo.push({ code, name, polys, bbox: [x0, y0, x1, y1] });
   }
-  // small padding so coastal cells aren't clipped
-  const pad = 0.05;
+
+  // --- region bbox (union) + grid ---
+  let lonMin = 1e9, lonMax = -1e9, latMin = 1e9, latMax = -1e9;
+  for (const c of geo) {
+    lonMin = Math.min(lonMin, c.bbox[0]); latMin = Math.min(latMin, c.bbox[1]);
+    lonMax = Math.max(lonMax, c.bbox[2]); latMax = Math.max(latMax, c.bbox[3]);
+  }
+  const pad = 0.1;
   lonMin -= pad; lonMax += pad; latMin -= pad; latMax += pad;
 
   const meanLat = (latMin + latMax) / 2;
   const cosLat = Math.cos(meanLat * Math.PI / 180);
-  // square metric cells: choose rows from the aspect ratio
   const cellLonDeg = (lonMax - lonMin) / TARGET_COLS;
   const cellKm = cellLonDeg * 111.32 * cosLat;
   const cellLatDeg = cellKm / 111.32;
   const rows = Math.round((latMax - latMin) / cellLatDeg);
   const cols = TARGET_COLS;
+  console.log(`region lon ${lonMin.toFixed(1)}..${lonMax.toFixed(1)} lat ${latMin.toFixed(1)}..${latMax.toFixed(1)}`);
   console.log(`grid ${cols} x ${rows}  (~${cellKm.toFixed(2)} km cells)`);
 
-  // --- tile range ---
-  const tx0 = Math.floor(lon2px(lonMin, ZOOM) / TILE);
-  const tx1 = Math.floor(lon2px(lonMax, ZOOM) / TILE);
-  const ty0 = Math.floor(lat2px(latMax, ZOOM) / TILE);   // north = smaller y
-  const ty1 = Math.floor(lat2px(latMin, ZOOM) / TILE);
+  // --- tiles ---
+  const tx0 = Math.floor(lon2px(lonMin, ZOOM) / TILE), tx1 = Math.floor(lon2px(lonMax, ZOOM) / TILE);
+  const ty0 = Math.floor(lat2px(latMax, ZOOM) / TILE), ty1 = Math.floor(lat2px(latMin, ZOOM) / TILE);
   const nX = tx1 - tx0 + 1, nY = ty1 - ty0 + 1;
   console.log(`tiles z${ZOOM}: x ${tx0}..${tx1} y ${ty0}..${ty1} (${nX * nY} tiles)`);
 
-  // --- download + assemble mosaic ---
   const mosaicW = nX * TILE, mosaicH = nY * TILE;
-  const elev = new Float32Array(mosaicW * mosaicH);
+  const src = new Float32Array(mosaicW * mosaicH);
   let done = 0;
-  for (let ty = ty0; ty <= ty1; ty++) {
-    for (let tx = tx0; tx <= tx1; tx++) {
-      const buf = await fetchTile(ZOOM, tx, ty);
-      const png = PNG.sync.read(buf);
-      const ox = (tx - tx0) * TILE, oy = (ty - ty0) * TILE;
-      for (let py = 0; py < TILE; py++) {
-        for (let px = 0; px < TILE; px++) {
-          const si = (py * TILE + px) * 4;
-          const h = png.data[si] * 256 + png.data[si + 1] + png.data[si + 2] / 256 - 32768;
-          elev[(oy + py) * mosaicW + (ox + px)] = h;
-        }
-      }
-      done++;
-      if (done % 8 === 0 || done === nX * nY) process.stdout.write(`\r  tiles ${done}/${nX * nY}`);
+  for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+    const png = PNG.sync.read(await get(`${TILE_BASE}/${ZOOM}/${tx}/${ty}.png`));
+    const ox = (tx - tx0) * TILE, oy = (ty - ty0) * TILE;
+    for (let py = 0; py < TILE; py++) for (let px = 0; px < TILE; px++) {
+      const si = (py * TILE + px) * 4;
+      src[(oy + py) * mosaicW + (ox + px)] =
+        png.data[si] * 256 + png.data[si + 1] + png.data[si + 2] / 256 - 32768;
     }
+    if (++done % 8 === 0 || done === nX * nY) process.stdout.write(`\r  tiles ${done}/${nX * nY}`);
   }
   process.stdout.write('\n');
 
-  const px0 = tx0 * TILE, py0 = ty0 * TILE;
+  const bpx0 = tx0 * TILE, bpy0 = ty0 * TILE;
   const sampleElev = (lon, lat) => {
-    const gx = lon2px(lon, ZOOM) - px0;
-    const gy = lat2px(lat, ZOOM) - py0;
+    const gx = lon2px(lon, ZOOM) - bpx0, gy = lat2px(lat, ZOOM) - bpy0;
     const x0 = Math.floor(gx), y0 = Math.floor(gy);
     const x1 = Math.min(x0 + 1, mosaicW - 1), y1 = Math.min(y0 + 1, mosaicH - 1);
     const fx = gx - x0, fy = gy - y0;
-    const a = elev[y0 * mosaicW + x0], b = elev[y0 * mosaicW + x1];
-    const c = elev[y1 * mosaicW + x0], d = elev[y1 * mosaicW + x1];
+    const a = src[y0 * mosaicW + x0], b = src[y0 * mosaicW + x1];
+    const c = src[y1 * mosaicW + x0], d = src[y1 * mosaicW + x1];
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
   };
 
-  // --- resample onto target grid + build mask ---
-  const outElev = new Int16Array(cols * rows);
-  const mask = new Uint8Array(cols * rows);
-  let land = 0, hiMin = 1e9, hiMax = -1e9;
-  for (let r = 0; r < rows; r++) {
-    const lat = latMax - (r + 0.5) * (latMax - latMin) / rows;   // row 0 = north
-    for (let c = 0; c < cols; c++) {
-      const lon = lonMin + (c + 0.5) * (lonMax - lonMin) / cols;
-      const idx = r * cols + c;
-      const inside = pointInMultiPolygon(lon, lat, polys);
-      mask[idx] = inside ? 1 : 0;
-      let h = sampleElev(lon, lat);
-      if (h < -100) h = 0;                    // clamp bathymetry / voids
-      outElev[idx] = Math.round(h);
-      if (inside) { land++; hiMin = Math.min(hiMin, h); hiMax = Math.max(hiMax, h); }
-    }
-    if (r % 64 === 0) process.stdout.write(`\r  resample ${r}/${rows}`);
-  }
-  process.stdout.write(`\r  resample ${rows}/${rows}\n`);
-  console.log(`land cells ${land}  elev ${hiMin.toFixed(0)}..${hiMax.toFixed(0)} m`);
+  // helpers to map lon/lat <-> grid col/row
+  const lon2col = lon => Math.floor((lon - lonMin) / (lonMax - lonMin) * cols);
+  const lat2row = lat => Math.floor((latMax - lat) / (latMax - latMin) * rows);
 
-  // --- write binary: Int16 elev, then Uint8 mask ---
-  const bin = Buffer.alloc(outElev.length * 2 + mask.length);
-  Buffer.from(outElev.buffer).copy(bin, 0);
-  Buffer.from(mask.buffer).copy(bin, outElev.length * 2);
-  fs.writeFileSync(path.join(DATA, 'saudi_elevation.bin'), bin);
+  // --- country id mask (rasterise each country within its bbox) ---
+  const cid = new Uint8Array(cols * rows);
+  const cellBox = geo.map(() => [1e9, 1e9, -1e9, -1e9]); // [cmin,rmin,cmax,rmax]
+  for (let gi = 0; gi < geo.length; gi++) {
+    const c = geo[gi];
+    const c0 = Math.max(0, lon2col(c.bbox[0]) - 1), c1 = Math.min(cols - 1, lon2col(c.bbox[2]) + 1);
+    const r0 = Math.max(0, lat2row(c.bbox[3]) - 1), r1 = Math.min(rows - 1, lat2row(c.bbox[1]) + 1);
+    for (let r = r0; r <= r1; r++) {
+      const lat = latMax - (r + 0.5) * (latMax - latMin) / rows;
+      for (let cc = c0; cc <= c1; cc++) {
+        const idx = r * cols + cc;
+        if (cid[idx]) continue;
+        const lon = lonMin + (cc + 0.5) * (lonMax - lonMin) / cols;
+        if (pointInPolys(lon, lat, c.polys)) {
+          cid[idx] = gi + 1;
+          const b = cellBox[gi];
+          if (cc < b[0]) b[0] = cc; if (r < b[1]) b[1] = r;
+          if (cc > b[2]) b[2] = cc; if (r > b[3]) b[3] = r;
+        }
+      }
+    }
+    process.stdout.write(`\r  mask ${gi + 1}/${geo.length} (${c.code})`);
+  }
+  process.stdout.write('\n');
+
+  // --- elevation on land cells ---
+  const elev = new Int16Array(cols * rows);
+  let land = 0, eMin = 1e9, eMax = -1e9;
+  for (let r = 0; r < rows; r++) {
+    const lat = latMax - (r + 0.5) * (latMax - latMin) / rows;
+    for (let cc = 0; cc < cols; cc++) {
+      const idx = r * cols + cc;
+      if (!cid[idx]) continue;
+      const lon = lonMin + (cc + 0.5) * (lonMax - lonMin) / cols;
+      const h = sampleElev(lon, lat);
+      elev[idx] = Math.round(h);
+      land++; if (h < eMin) eMin = h; if (h > eMax) eMax = h;
+    }
+    if (r % 64 === 0) process.stdout.write(`\r  elev ${r}/${rows}`);
+  }
+  process.stdout.write(`\r  elev ${rows}/${rows}\n`);
+  console.log(`land cells ${land}  elev ${eMin.toFixed(0)}..${eMax.toFixed(0)} m`);
+
+  // --- write gzipped binary ---
+  const bin = Buffer.alloc(elev.length * 2 + cid.length);
+  Buffer.from(elev.buffer).copy(bin, 0);
+  Buffer.from(cid.buffer).copy(bin, elev.length * 2);
+  const gz = zlib.gzipSync(bin, { level: 9 });
+  fs.writeFileSync(path.join(DATA, 'region_elevation.bin.gz'), gz);
 
   const meta = {
-    country: 'Saudi Arabia',
-    source: {
-      elevation: 'GEDI-style DEM via AWS terrarium tiles (NASA SRTM/ASTER), zoom ' + ZOOM,
-      border: 'mledoze/countries (ODbL)'
-    },
-    cols, rows,
-    lonMin, lonMax, latMin, latMax,
-    meanLat, cosLat,
-    cellKm: +cellKm.toFixed(3),
-    elevMin: Math.round(hiMin), elevMax: Math.round(hiMax),
-    layout: { elev: 'int16', mask: 'uint8', order: 'row-major, row0=north' }
+    region: 'Middle East',
+    source: { elevation: `AWS terrarium DEM tiles (SRTM/ASTER), zoom ${ZOOM}`, border: 'mledoze/countries (ODbL)' },
+    cols, rows, lonMin, lonMax, latMin, latMax, meanLat, cosLat,
+    cellKm: +cellKm.toFixed(3), elevMin: Math.round(eMin), elevMax: Math.round(eMax),
+    layout: { elev: 'int16', cid: 'uint8', order: 'row-major, row0=north', gzip: true },
+    countries: geo.map((c, i) => ({
+      id: i + 1, code: c.code, name: c.name,
+      cell: cellBox[i][0] <= cellBox[i][2] ? cellBox[i] : null, // [cmin,rmin,cmax,rmax]
+    })),
   };
-  fs.writeFileSync(path.join(DATA, 'saudi_elevation.json'), JSON.stringify(meta, null, 2));
-  console.log(`wrote data/saudi_elevation.bin (${(bin.length / 1024).toFixed(0)} KB) + .json`);
+  fs.writeFileSync(path.join(DATA, 'region_elevation.json'), JSON.stringify(meta, null, 2));
+  console.log(`wrote data/region_elevation.bin.gz (${(gz.length / 1024).toFixed(0)} KB) + .json`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

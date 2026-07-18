@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Saudi Arabia Terrain — 3D Block Diagram</title>
+<title>Middle East Terrain — 3D Block Diagram</title>
 <style>
   :root{
     --ink:#1c1a17; --sub:#6b655c; --line:#e3ddd3; --panel:#fbf9f5;
@@ -23,6 +23,13 @@
   #head h1{font-size:19px;margin:0 0 4px;font-weight:650;letter-spacing:.1px}
   #head p{font-size:11.5px;line-height:1.45;margin:0;color:var(--sub);max-width:560px}
   #head a{color:var(--accent);text-decoration:none}
+
+  /* ---- focus (country) selector ---- */
+  #focusrow{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);
+            border-radius:7px;padding:5px 10px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  #focusrow label{font-size:11px;color:var(--sub)}
+  #focusrow select{font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:#fbf9f5;
+                   color:var(--ink);min-width:180px;cursor:pointer}
 
   /* ---- resolution tabs ---- */
   #tabs{display:flex;gap:0;border:1px solid var(--line);
@@ -85,11 +92,16 @@
 
   <div id="topleft">
     <div id="head">
-      <h1>Kingdom of Saudi Arabia &mdash; Terrain Elevation</h1>
-      <p>3D block diagram of surface elevation, native ~90&nbsp;m DEM resampled to ~3.6&nbsp;km cells and clipped to
-         the national border. You can see the Asir &amp; Hijaz highlands along the Red&nbsp;Sea, the Najd plateau,
-         and the flat vastness of the Rub&nbsp;al&nbsp;Khali. Tabs change the resolution.
-         Source: AWS Terrain (SRTM/ASTER) &middot; border via mledoze/countries.</p>
+      <h1>The Middle East &mdash; Terrain Elevation</h1>
+      <p>3D block diagram of surface elevation across 17 countries, DEM resampled to ~4.7&nbsp;km cells and clipped to
+         national borders. Turkey's Anatolian plateau &amp; Taurus, Iran's Zagros and the Alborz (Mt&nbsp;Damavand),
+         the Arabian escarpment and the flat Rub&nbsp;al&nbsp;Khali. Pick a country to focus; tabs change resolution.
+         Source: AWS Terrain (SRTM/ASTER) &middot; borders via mledoze/countries.</p>
+    </div>
+
+    <div id="focusrow">
+      <label for="region">focus</label>
+      <select id="region"><option value="0">All — Middle East</option></select>
     </div>
 
     <div id="tabs">
@@ -132,7 +144,7 @@
   <div id="legend">
     <div class="t">Elevation</div>
     <div class="bar"></div>
-    <div class="ticks"><span>0 m</span><span>800</span><span>1600</span><span>2400</span><span>3000+</span></div>
+    <div class="ticks" id="ticks"><span>0 m</span><span></span><span></span><span></span><span></span></div>
   </div>
 
   <div id="loading"><div class="spin"></div><div>Loading elevation data…</div></div>

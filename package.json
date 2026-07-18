@@ -1,7 +1,7 @@
 {
-  "name": "saudi-terrain-3d",
+  "name": "middle-east-terrain-3d",
   "version": "1.0.0",
-  "description": "three.js 3D block diagram of Saudi Arabia's terrain elevation",
+  "description": "three.js 3D block diagram of Middle East terrain elevation",
   "type": "module",
   "scripts": {
     "build-data": "node scripts/build_data.mjs",
@@ -16,7 +16,9 @@
     "webgl",
     "terrain",
     "dem",
-    "saudi-arabia",
+    "middle-east",
+    "iran",
+    "turkey",
     "block-diagram",
     "dataviz"
   ],
