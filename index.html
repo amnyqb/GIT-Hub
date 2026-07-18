@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Saudi Arabia Terrain — 3D Block Diagram</title>
+<style>
+  :root{
+    --ink:#1c1a17; --sub:#6b655c; --line:#e3ddd3; --panel:#fbf9f5;
+    --accent:#c67b3f; --track:#e7e0d4;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#f4f1ea}
+  #stage{position:fixed;inset:0}
+  canvas{display:block}
+
+  /* ---- top-left stacked column ---- */
+  #topleft{position:fixed;left:20px;top:16px;z-index:5;display:flex;flex-direction:column;
+           gap:12px;align-items:flex-start;max-width:600px}
+
+  /* ---- header ---- */
+  #head{pointer-events:none}
+  #head h1{font-size:19px;margin:0 0 4px;font-weight:650;letter-spacing:.1px}
+  #head p{font-size:11.5px;line-height:1.45;margin:0;color:var(--sub);max-width:560px}
+  #head a{color:var(--accent);text-decoration:none}
+
+  /* ---- resolution tabs ---- */
+  #tabs{display:flex;gap:0;border:1px solid var(--line);
+        border-radius:7px;overflow:hidden;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  #tabs button{border:0;background:#fff;font-size:11.5px;padding:6px 12px;cursor:pointer;color:var(--sub);
+        border-right:1px solid var(--line);white-space:nowrap}
+  #tabs button:last-child{border-right:0}
+  #tabs button.active{background:#f0e7da;color:var(--ink);font-weight:600}
+  #tabs button:hover:not(.active){background:#faf6ef}
+
+  /* ---- camera HUD ---- */
+  #hud{background:rgba(255,255,255,.82);border:1px solid var(--line);
+       border-radius:6px;padding:7px 10px;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#555;
+       backdrop-filter:blur(3px)}
+
+  /* ---- timer badge ---- */
+  #timer{position:fixed;right:22px;top:18px;z-index:5;background:rgba(40,38,34,.82);color:#fff;
+         font:600 15px/1 ui-monospace,monospace;padding:8px 12px;border-radius:8px;letter-spacing:1px}
+
+  /* ---- controls panel ---- */
+  #panel{position:fixed;right:20px;bottom:96px;width:290px;z-index:5;background:var(--panel);
+         border:1px solid var(--line);border-radius:10px;padding:12px 14px;box-shadow:0 6px 22px rgba(60,50,35,.10)}
+  .row{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:11.5px}
+  .row label{flex:0 0 92px;color:var(--sub)}
+  .row input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:3px;border-radius:3px;background:var(--track);outline:none}
+  .row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+        background:var(--accent);cursor:pointer;border:2px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+  .row input[type=range]::-moz-range-thumb{width:13px;height:13px;border:2px solid #fff;border-radius:50%;background:var(--accent);cursor:pointer}
+  .row .val{flex:0 0 40px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .row select{flex:1;font-size:11.5px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;background:#fff}
+  .row input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent)}
+  .sep{height:1px;background:var(--line);margin:10px 0 6px}
+  #export{width:100%;margin-top:10px;padding:9px;border:0;border-radius:7px;background:var(--accent);color:#fff;
+          font-size:12px;font-weight:600;cursor:pointer;letter-spacing:.3px}
+  #export:hover{background:#b56d34}
+  #export:disabled{opacity:.6;cursor:default}
+
+  /* ---- legend ---- */
+  #legend{position:fixed;left:20px;bottom:20px;z-index:5;background:rgba(255,255,255,.9);border:1px solid var(--line);
+          border-radius:8px;padding:9px 11px;backdrop-filter:blur(3px)}
+  #legend .t{font-size:11px;color:var(--sub);margin-bottom:5px}
+  #legend .bar{width:220px;height:11px;border-radius:3px;
+     background:linear-gradient(90deg,#1b6b7a 0%,#2e8b8b 12%,#7fae6e 32%,#cdb46a 52%,#d98f4e 70%,#b5603a 86%,#f2e4d0 100%)}
+  #legend .ticks{display:flex;justify-content:space-between;width:220px;font-size:9.5px;color:var(--sub);margin-top:3px}
+
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:20;
+           background:#f4f1ea;font-size:13px;color:var(--sub);flex-direction:column;gap:12px}
+  .spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  @media (max-width:760px){
+    #panel{width:220px;bottom:20px}
+    #head{max-width:60%}
+    #legend .bar,#legend .ticks{width:150px}
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <div id="topleft">
+    <div id="head">
+      <h1>Kingdom of Saudi Arabia &mdash; Terrain Elevation</h1>
+      <p>3D block diagram of surface elevation, native ~90&nbsp;m DEM resampled to ~3.6&nbsp;km cells and clipped to
+         the national border. You can see the Asir &amp; Hijaz highlands along the Red&nbsp;Sea, the Najd plateau,
+         and the flat vastness of the Rub&nbsp;al&nbsp;Khali. Tabs change the resolution.
+         Source: AWS Terrain (SRTM/ASTER) &middot; border via mledoze/countries.</p>
+    </div>
+
+    <div id="tabs">
+      <button data-res="8">3D · 1/8-res (big blocks)</button>
+      <button data-res="4" class="active">3D · quarter-res</button>
+      <button data-res="2">3D · half-res</button>
+      <button data-res="1">3D · full-res (small blocks)</button>
+    </div>
+
+    <div id="hud">
+      <div>cam&nbsp; X <span id="cx">0</span> &nbsp;Y <span id="cy">0</span> &nbsp;Z <span id="cz">0</span></div>
+      <div>tgt&nbsp; X <span id="tx">0</span> &nbsp;Y <span id="ty">0</span> &nbsp;Z <span id="tz">0</span></div>
+      <div>zoom <span id="zoom">1.00</span></div>
+    </div>
+  </div>
+
+  <div id="timer">00:00</div>
+
+  <div id="panel">
+    <div class="row">
+      <label>projection</label>
+      <select id="projection">
+        <option value="ortho" selected>orthographic</option>
+        <option value="persp">perspective</option>
+      </select>
+    </div>
+    <div class="row"><label>exaggeration</label><input type="range" id="exag" min="0.2" max="5" step="0.05" value="1.5"><span class="val" id="exagV">1.5</span></div>
+    <div class="row"><label>saturation</label><input type="range" id="sat" min="0" max="2" step="0.01" value="1.15"><span class="val" id="satV">1.15</span></div>
+    <div class="sep"></div>
+    <div class="row"><label>sun azimuth</label><input type="range" id="azm" min="0" max="360" step="1" value="235"><span class="val" id="azmV">235</span></div>
+    <div class="row"><label>sun elevation</label><input type="range" id="elv" min="5" max="89" step="1" value="46"><span class="val" id="elvV">46</span></div>
+    <div class="row"><label>sun intensity</label><input type="range" id="sun" min="0" max="4" step="0.05" value="2.1"><span class="val" id="sunV">2.1</span></div>
+    <div class="row"><label>ambient</label><input type="range" id="amb" min="0" max="2" step="0.05" value="0.85"><span class="val" id="ambV">0.85</span></div>
+    <div class="sep"></div>
+    <div class="row"><label>shadows</label><input type="checkbox" id="shadows" checked></div>
+    <div class="row"><label>shadow soft</label><input type="range" id="soft" min="0" max="10" step="1" value="4"><span class="val" id="softV">4</span></div>
+    <button id="export">export transparent PNG (4K)</button>
+  </div>
+
+  <div id="legend">
+    <div class="t">Elevation</div>
+    <div class="bar"></div>
+    <div class="ticks"><span>0 m</span><span>800</span><span>1600</span><span>2400</span><span>3000+</span></div>
+  </div>
+
+  <div id="loading"><div class="spin"></div><div>Loading elevation data…</div></div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "saudi-terrain-3d",
+  "version": "1.0.0",
+  "description": "three.js 3D block diagram of Saudi Arabia's terrain elevation",
+  "type": "module",
+  "scripts": {
+    "build-data": "node scripts/build_data.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:41729/git/amnyqb/GIT-Hub"
+  },
+  "keywords": [
+    "threejs",
+    "webgl",
+    "terrain",
+    "dem",
+    "saudi-arabia",
+    "block-diagram",
+    "dataviz"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "pngjs": "^7.0.0"
+  }
+}

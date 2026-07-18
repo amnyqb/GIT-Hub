@@ -1,0 +1,23 @@
+{
+  "country": "Saudi Arabia",
+  "source": {
+    "elevation": "GEDI-style DEM via AWS terrarium tiles (NASA SRTM/ASTER), zoom 7",
+    "border": "mledoze/countries (ODbL)"
+  },
+  "cols": 600,
+  "rows": 513,
+  "lonMin": 34.442218000000004,
+  "lonMax": 55.71611,
+  "latMin": 15.566939999999999,
+  "latMax": 32.204941999999996,
+  "meanLat": 23.885940999999995,
+  "cosLat": 0.9143533396669576,
+  "cellKm": 3.609,
+  "elevMin": -34,
+  "elevMax": 2920,
+  "layout": {
+    "elev": "int16",
+    "mask": "uint8",
+    "order": "row-major, row0=north"
+  }
+}
