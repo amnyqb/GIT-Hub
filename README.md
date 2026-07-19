@@ -38,6 +38,16 @@ npm run serve      # serves the app at http://localhost:8099
 Then open <http://localhost:8099/>. (A server is required because the app fetches the
 data files as ES-module resources.)
 
+### Single-file build (no server)
+
+`dist/middle-east-terrain.html` is a fully self-contained build — three.js, the
+elevation data, and all code inlined, with **no external requests**. Just open it in a
+browser, or host it anywhere as a single file. Regenerate it with:
+
+```bash
+npm run build-artifact
+```
+
 ## Data
 
 The elevation grid is pre-baked into `data/region_elevation.bin.gz` (gzipped: Int16

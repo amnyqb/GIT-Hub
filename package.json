@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build-data": "node scripts/build_data.mjs",
+    "build-artifact": "node scripts/build_artifact.mjs",
     "serve": "node scripts/serve.mjs"
   },
   "repository": {
